@@ -1,3 +1,7 @@
+.vscode
+.wrangler
+.trunk
+
 # Logs
 
 logs
