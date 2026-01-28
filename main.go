@@ -506,7 +506,7 @@ func isNormalCloseError(err error) bool {
 // makeFrame 构造 v2 frame
 // 结构: [MAGIC][VERSION][CMD][FLAGS][LEN(4字节大端序)][PAYLOAD]
 func makeFrame(cmd byte, flags byte, payload []byte) []byte {
-    frame := make([]byte, 6)
+    frame := make([]byte, 8)
     frame[0] = FRAME_MAGIC
     frame[1] = FRAME_VERSION
     frame[2] = cmd
@@ -518,8 +518,8 @@ func makeFrame(cmd byte, flags byte, payload []byte) []byte {
 // parseFrame 解析 v2 frame
 // 返回: (cmd, flags, payload, ok)
 func parseFrame(buffer []byte) (byte, byte, []byte, bool) {
-    // 最小帧大小: 6字节头部
-    if len(buffer) < 6 {
+    // 最小帧大小: 8字节头部
+    if len(buffer) < 8 {
         return 0, 0, nil, false
     }
 
@@ -540,13 +540,13 @@ func parseFrame(buffer []byte) (byte, byte, []byte, bool) {
     }
 
     // 检查总长度
-    if uint32(len(buffer)) < 6+length {
+    if uint32(len(buffer)) < 8+length {
         return 0, 0, nil, false
     }
 
     cmd := buffer[2]
     flags := buffer[3]
-    payload := buffer[6 : 6+length]
+    payload := buffer[8 : 8+length]
 
     return cmd, flags, payload, true
 }
@@ -1432,6 +1432,7 @@ func handleTunnel(conn net.Conn, target, clientAddr string, mode int, firstFrame
     // ======================== v2 协议握手 ========================
 
     // 1. AUTH 认证
+    // 注意：服务端认证成功不发送响应，认证失败才发送CLOSE帧
     authPayload := []byte(token)
     authFrame := makeFrame(CMD_AUTH, 0x00, authPayload)
     mu.Lock()
@@ -1442,20 +1443,19 @@ func handleTunnel(conn net.Conn, target, clientAddr string, mode int, firstFrame
         return fmt.Errorf("发送AUTH帧失败: %w", err)
     }
 
-    // 等待 AUTH 响应
-    _, msg, err := wsConn.ReadMessage()
-    if err != nil {
-        sendErrorResponse(conn, mode)
-        return fmt.Errorf("读取AUTH响应失败: %w", err)
+    // 设置短暂超时读取可能的CLOSE响应（认证失败）
+    _ = wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+    mt, msg, err := wsConn.ReadMessage()
+    _ = wsConn.SetReadDeadline(time.Time{})
+    if err == nil && mt == websocket.BinaryMessage {
+        cmd, _, payload, ok := parseFrame(msg)
+        if ok && cmd == CMD_CLOSE {
+            log.Printf("[代理] %s 认证失败: %s", clientAddr, string(payload))
+            sendErrorResponse(conn, mode)
+            return fmt.Errorf("认证失败: %s", string(payload))
+        }
     }
-
-    // 检查是否为 CLOSE 帧（认证失败）
-    cmd, _, payload, ok := parseFrame(msg)
-    if ok && cmd == CMD_CLOSE {
-        log.Printf("[代理] %s 认证失败: %s", clientAddr, string(payload))
-        sendErrorResponse(conn, mode)
-        return fmt.Errorf("认证失败: %s", string(payload))
-    }
+    // 如果读取超时或不是CLOSE帧，继续（认证成功时不返回响应）
 
     // 2. OPEN 连接
     openPayload := []byte(fmt.Sprintf("%s|%s", target, firstFrame))
@@ -1475,7 +1475,7 @@ func handleTunnel(conn net.Conn, target, clientAddr string, mode int, firstFrame
         return fmt.Errorf("读取OPEN响应失败: %w", err)
     }
 
-    cmd, _, payload, ok = parseFrame(msg)
+    cmd, _, payload, ok := parseFrame(msg)
     if !ok {
         sendErrorResponse(conn, mode)
         return fmt.Errorf("无效的OPEN响应帧")
