@@ -70,13 +70,17 @@ const (
     CMD_DATA      = 0x03
     CMD_CLOSE     = 0x04
     FRAME_MAXLEN  = 64 * 1024 // 64KB max payload
+
+    // 默认PSK (与服务端一致: aB3#9dkf8!2jQpL4s8xZyW7v1UeR0mN2)
+    // base64: YUIzIzlka2Y4ITJqUXBMNHM4eFp5Vzd2MVVlUjBtTjI=
+    defaultPSK = "aB3#9dkf8!2jQpL4s8xZyW7v1UeR0mN2"
 )
 
 func init() {
     flag.StringVar(&listenAddr, "l", "127.0.0.1:30000", "代理监听地址 (支持 SOCKS5 和 HTTP)")
     flag.StringVar(&serverAddr, "f", "", "服务端地址 (格式: x.x.workers.dev:443)")
     flag.StringVar(&serverIP, "ip", "", "指定服务端 IP（绕过 DNS 解析）")
-    flag.StringVar(&token, "token", "", "身份验证令牌")
+    flag.StringVar(&token, "token", defaultPSK, "身份验证令牌 (默认: 服务端内置PSK)")
     flag.StringVar(&dnsServer, "dns", "dns.alidns.com/dns-query", "ECH 查询 DoH 服务器")
     flag.StringVar(&echDomain, "ech", "cloudflare-ech.com", "ECH 查询域名")
     flag.StringVar(&routingMode, "routing", "global", "分流模式: global(全局代理), bypass_cn(跳过中国大陆), none(不改变代理)")
