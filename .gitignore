@@ -174,3 +174,10 @@ dist
 
 .dev.vars
 .wrangler/
+
+# Go binaries and build artifacts
+
+proxy-client
+proxy-client-*
+*.exe
+go.sum
